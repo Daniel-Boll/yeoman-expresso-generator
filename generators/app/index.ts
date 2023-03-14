@@ -8,9 +8,21 @@ type props = {
   name: string;
 };
 
+enum Pattern {
+  LOWER_CASE = 'lowercase',
+  KEBAB_CASE = 'kebab-case',
+  PASCAL_CASE = 'PascalCase',
+  CAMEL_CASE = 'camelCase',
+}
+
+type config = {
+  scaffoldPattern: Pattern;
+};
+
 // <g|generator> Generator
 export default class extends Generator {
   public answers: props = {} as props;
+  public expressoConfig: config = {} as config;
 
   constructor(args: string | string[], options: {}) {
     super(args, options);
@@ -55,7 +67,19 @@ export default class extends Generator {
     });
   }
 
-  public initializing() {}
+  public initializing() {
+    // Get the config from the expressots.config.ts file
+    if (!this.fs.exists(this.destinationPath('expressots.config.ts')))
+      this.env.error(
+        new Error(
+          'The expressots.config.ts file is missing. Please create it in the root of your project.'
+        )
+      );
+
+    this.expressoConfig = {
+      ...require(this.destinationPath('expressots.config.ts')).config,
+    };
+  }
 
   public async prompting() {
     const {schematic} = await this.prompt<{schematic?: string}>([
@@ -98,15 +122,36 @@ export default class extends Generator {
     }
   }
 
-  private _pascalCase(str: string): string {
+  private _toPascalCase(str: string): string {
     return str
       .split(/[_\-\s]+|(?=[A-Z])/)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join('');
   }
 
+  private _toKebabCase(str: string): string {
+    return str.replace(/([a-z])([A-Z])/g, '$1-$2').toLowerCase();
+  }
+
   public writing() {
-    const {schematic, name} = this.answers;
+    const {schematic} = this.answers;
+
+    // Get the name according to the config
+    let {name} = this.answers;
+    switch (this.expressoConfig.scaffoldPattern) {
+      case Pattern.LOWER_CASE:
+        name = name.toLowerCase();
+        break;
+      case Pattern.KEBAB_CASE:
+        name = this._toKebabCase(name);
+        break;
+      case Pattern.PASCAL_CASE:
+        name = this._toPascalCase(name);
+        break;
+      case Pattern.CAMEL_CASE:
+        name = name.charAt(0).toLowerCase() + name.slice(1);
+        break;
+    }
 
     // TODO: Promisify this eventually (https://yeoman.io/authoring/running-context.html @ Asynchronous tasks)
     mkdir(`src/${name}`, {recursive: true}, err => {
@@ -117,7 +162,7 @@ export default class extends Generator {
         this.templatePath(`${schematic}.tpl`),
         this.destinationPath(`src/${name}/${name}.${schematic}.ts`),
         {
-          className: this._pascalCase(name),
+          className: this._toPascalCase(name),
         }
       );
     });
